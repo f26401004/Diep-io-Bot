@@ -9,7 +9,8 @@ from opertor import add
 class DQNAgent(object):
   def __init__(self):
     self.reward = 0
-    self.gamma = 0.0
+    self.gamma = 0.9
+    self.grid_size = 5
     self.dataframe = pd.DataFrame()
     self.short_memory = np.array([])
 
@@ -29,18 +30,51 @@ class DQNAgent(object):
 
   def get_state(self, game, player):
     state = [
-      player.gameObject.velocity.x < 0,
-      player.gameObject.velocity.x > 0,
-      player.gameObject.velocity.y < 0,
-      player.gameObject.velocity.y > 0,
-      
+      player.shootCD, # player shoot CD time
+      player.status.bulletDamage, # player bullet damage level
+      player.gameObject.position.x, # x position
+      player.gameObject.position.y, # y position
+      player.gameObject.velocity.x, # x movement
+      player.gameObject.velocity.x, # y movement
     ]
+    # compute the grid-cell value
+    v_x = max(player.gameObject.position.y - game.field.width / 2, 0)
+    x_y = max(player.gameObject.position.y - game.field.height / 2, 0)
+    for i in range(self.grid_size * self.grid_size):
+      score = 0
+      current_x = v_x + (i % self.grid_size) * game.field.width / self.grid_size
+      current_y = v_x + (i / self.grid_size) * game.field.height / self.grid_size
+      for diep in game.dieps:
+        if (current_x < diep.gameObject.position.x < current_x + game.field.width / self.grid_size and
+          current_y < diep.gameObject.position.y < current_y + game.field.height / self.grid_size):
+          if (diep.gameObject.id == player.gameObject.id):
+            continue
+          score += 3
+      for stuff in game.stuffs:
+        if (current_x < stuff.gameObject.position.x < current_x + game.field.width / self.grid_size and
+          current_y < stuff.gameObject.position.y < current_y + game.field.height / self.grid_size):
+          score += 2
+      for bullet in game.bullets:
+        if (current_x < bullet.gameObject.position.x < current_x + game.field.width / self.grid_size and
+          current_y < bullet.gameObject.position.y < current_y + game.field.height / self.grid_size):
+          score -= 5
+      for trap in game.traps:
+        if (current_x < trap.gameObject.position.x < current_x + game.field.width / self.grid_size and
+          current_y < trap.gameObject.position.y < current_y + game.field.height / self.grid_size):
+          score += 1
+      
+      state.append(score)
 
-  def set_reward(self, player, dead):
+
+    return np.asarray(state)
+
+  def set_reward(self, player, dead, damage):
     self.reward = 0
     if dead:
       self.reward -= 10
       return self.reward
+    elif damage:
+      self.reward -= 3
     else:
       self.reward = 10
     return self.reward
@@ -78,3 +112,12 @@ class DQNAgent(object):
       target_f = self.model.predict(np.array[state])
       target_f[0][np.argmax(action)] = target
       self.model.fit(np.array([state]), target_f, epochs=1, verbose=0)
+
+  def train_short_memory(self, state, action, reward, next_state, done):
+    target = reward
+    if not done:
+      target = reward + self.gamma * np.amax(self.model.predict(next_state.reshape((1, 6 + self.grid_size * self.grid_size)))[0])
+    target_f = self.model.predict(state.reshape((1, 6 + self.grid_size * self.grid_size)))
+    target_f[0][np.argmax(action)] = target
+    self.model.fit(state.reshape((1, 6 + self.grid_size * self.grid_size)), target_f, epochs=1, verbose=0)
+    
