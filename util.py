@@ -1,5 +1,7 @@
+import math
+
 def distance(a, b):
-  return sqrt((a['x'] - b['y'])**2 + (a['y'] - b['y'])**2)
+  return math.sqrt((a['x'] - b['x']) ** 2 + (a['y'] - b['y'])**2)
 
 def vector(hdg, len):
-  return (cos(hdg) * len, sin(hdg) * len)
+  return (math.cos(hdg) * len, math.sin(hdg) * len)
