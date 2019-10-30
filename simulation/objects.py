@@ -3,6 +3,8 @@ import json
 import uuid
 import math
 import pygame
+import numpy as np
+import util
 
 friction = 0.97
 
@@ -58,7 +60,7 @@ class GameObject(object):
   def collide_with(self, collider):
     pass
 
-class Player(GameObject):
+class PlayerShoot(GameObject):
   def __init__(self, x, y):
     GameObject.__init__(self, x, y)
     self.radius = 15
@@ -80,6 +82,62 @@ class Player(GameObject):
       'bullet_damage': 1,
       'body_damage': 1
     }
+    self.shoot_status = {
+      'fire': False,
+      'angle': 0,
+      'cd': 0
+    }
+
+  def update(self):
+    self.shoot_status['cd'] -= 0 if self.shoot_status['cd'] <= 0 else 1
+
+  def draw(self, game):
+    game.game_display.blit(self.image, (self.position['x'] - self.radius, self.position['y'] - self.radius))
+
+  def do_shoot_action(self, game, action):
+    self.shoot_status['fire'] = False
+    if action[0] == 1 and self.shoot_status['cd'] <= 0:
+      self.shoot_status['fire'] = True
+      self.shoot_status['angle'] = action[1]
+      existence = (self.status['bullet_penetration'] - 1) * 5 + 20
+      bullet = Bullet(self.position['x'], self.position['y'], existence, self.status['bullet_damage'], {
+        'x': math.cos(action[1]) * (10 + self.status['bullet_speed']),
+        'y': math.sin(action[1]) * (10 + self.status['bullet_speed'])
+      }, self.id)
+      game.map_info['bullets'].append(bullet)
+      self.shoot_status['cd'] = 50 * math.log(self.status['bullet_reload'] + 1, 10)
+  
+  def collide_with(self, collider):
+    self.attr['hp'] -= collider.attr['body_damage'] * 5
+
+
+class PlayerMove(GameObject):
+  def __init__(self, x, y):
+    GameObject.__init__(self, x, y)
+    self.radius = 15
+    self.image = pygame.image.load('images/player.png')
+    self.attr = {
+      'hp': 100,
+      'maxhp': 100,
+      'level': 1,
+      'exp': 0,
+      'shoot_cd': 0
+    }
+    self.status = {
+      'maxhp': 1,
+      'hp_regeneration': 1,
+      'move_speed': 1,
+      'bullet_speed': 1,
+      'bullet_penetration': 1,
+      'bullet_reload': 1,
+      'bullet_damage': 1,
+      'body_damage': 1
+    }
+    self.shoot_status = {
+      'fire': False,
+      'angle': 0,
+      'cd': 0
+    }
 
   def update(self):
     if (self.move_direction['up']):
@@ -95,28 +153,45 @@ class Player(GameObject):
     self.acceleration['left'] = self.acceleration['left'] * friction
     self.acceleration['right'] = self.acceleration['right'] * friction
 
-    self.velocity['x'] = (self.acceleration['down'] - self.acceleration['up']) * friction
-    self.velocity['y'] = (self.acceleration['right'] - self.acceleration['left']) * friction
+    if self.acceleration['down'] - self.acceleration['up'] > 0:
+      self.velocity['y'] = min((self.acceleration['down'] - self.acceleration['up']) * friction, math.sqrt(self.status['move_speed'] + 5))
+    else:
+      self.velocity['y'] = max((self.acceleration['down'] - self.acceleration['up']) * friction, math.sqrt(self.status['move_speed'] + 5) * (-1))
+    if self.acceleration['right'] - self.acceleration['left'] > 0:
+      self.velocity['x'] = min((self.acceleration['right'] - self.acceleration['left']) * friction, math.sqrt(self.status['move_speed'] + 5))
+    else:
+      self.velocity['x'] = min((self.acceleration['right'] - self.acceleration['left']) * friction, math.sqrt(self.status['move_speed'] + 5)* (-1))
+
+    #   self.velocity['x'] = min((self.acceleration['right'] - self.acceleration['left']) * friction, math.sqrt(self.status['move_speed'] + 5))
+    # else:
+    #   self.velocity['x'] = min((self.acceleration['right'] - self.acceleration['left']) * friction, math.sqrt(self.status['move_speed'] + 5) * (-1))
+
+    
     self.position['x'] = min(max(self.position['x'] + self.velocity['x'], 0), 800)
     self.position['y'] = min(max(self.position['y'] + self.velocity['y'], 0), 600)
-    self.attr['shoot_cd'] -= 0 if self.attr['shoot_cd'] <= 0 else 1
+    self.shoot_status['cd'] -= 0 if self.shoot_status['cd'] <= 0 else 1
     self.attr['hp'] += math.log(self.status['hp_regeneration'] + 1) if self.attr['hp'] <= self.attr['maxhp'] else 0
-    self.attr['hp'] = min(self.attr['hp'], self.attr['maxhp'])
+    self.attr['hp'] = max(min(self.attr['hp'], self.attr['maxhp']), 0)
 
   def draw(self, game):
-    if self.attr['hp'] > 0:
-      game.game_display.blit(self.image, (self.position['x'] - self.radius, self.position['y'] - self.radius))
+    if (self.position['x'] == 0 or self.position['x'] == game.game_width or self.position['y'] == 0 or self.position['y'] == game.game_height) and game.agent.reward < 0.43:
+      self.attr['hp'] = 0
+    # if self.attr['hp'] > 0:
+    game.game_display.blit(self.image, (self.position['x'] - self.radius, self.position['y'] - self.radius))
 
-  def do_action(self, game, action):
-    
-    if action[0] == 1 and self.attr['shoot_cd'] <= 0:
-      existence = (self.status['bullet_penetration'] - 1) * 5 + 20
-      bullet = Bullet(self.position['x'], self.position['y'], existence, self.status['bullet_damage'], {
-        'x': math.cos(2 * math.pi * action[1]) * (10 + self.status['bullet_speed']),
-        'y': math.sin(2 * math.pi * action[1]) * (10 + self.status['bullet_speed'])
-      }, self.id)
-      game.map_info['bullets'].append(bullet)
-      self.attr['shoot_cd'] = 50 * math.log(self.status['bullet_reload'] + 1, 10)
+  def do_move_action(self, game, action):
+    # if action[0] == 1 and self.shoot_status['cd'] <= 0:
+    #   self.shoot_status['fire'] = False
+    #   self.shoot_status['angle'] = action[1]
+    #   existence = (self.status['bullet_penetration'] - 1) * 5 + 20
+    #   bullet = Bullet(self.position['x'], self.position['y'], existence, self.status['bullet_damage'], {
+    #     'x': math.cos(action[1]) * (10 + self.status['bullet_speed']),
+    #     'y': math.sin(action[1]) * (10 + self.status['bullet_speed'])
+    #   }, self.id)
+    #   game.map_info['bullets'].append(bullet)
+    #   self.shoot_status['cd'] = 50 * math.log(self.status['bullet_reload'] + 1, 10)
+    # else:
+    #   self.shoot_status['fire'] = False
     
     self.move_direction = {
       'up': False,
@@ -124,15 +199,58 @@ class Player(GameObject):
       'left': False,
       'right': False
     }
-    if action[2] == 1:
+    type_num = np.argwhere(action == 1)
+    if type_num == 1:
       self.move_direction['up'] = True
-    if action[3] == 1:
+    elif type_num == 2:
       self.move_direction['down'] = True
-    if action[4] == 1:
+    elif type_num == 3:
       self.move_direction['left'] = True
-    if action[5] == 1:
+    elif type_num == 4:
       self.move_direction['right'] = True
-  
+    elif type_num == 5:
+      self.move_direction['up'] = True
+      self.move_direction['left'] = True
+    elif type_num == 6:
+      self.move_direction['up'] = True
+      self.move_direction['right'] = True
+    elif type_num == 7:
+      self.move_direction['down'] = True
+      self.move_direction['left'] = True
+    elif type_num == 8:
+      self.move_direction['down'] = True
+      self.move_direction['right'] = True
+    
+    target = None
+    angle = -1
+    # find the closest stuff and shoot
+    for stuff in game.map_info['stuffs']:
+      dist = util.distance(self.position, stuff.position)
+      if target:
+        if dist < 200 and util.distance(self.position, target.position) > dist:
+          angle = util.angle(self.position, stuff.position)
+          target = stuff
+      else:
+        if dist < 200:
+          angle = util.angle(self.position, stuff.position)
+          target = stuff
+    if target:
+      self.do_shoot_action(game, [1, angle])
+
+
+  def do_shoot_action(self, game, action):
+    self.shoot_status['fire'] = False
+    if action[0] == 1 and self.shoot_status['cd'] <= 0:
+      self.shoot_status['fire'] = True
+      self.shoot_status['angle'] = action[1]
+      existence = (self.status['bullet_penetration'] - 1) * 5 + 20
+      bullet = Bullet(self.position['x'], self.position['y'], existence, self.status['bullet_damage'], {
+        'x': math.cos(action[1]) * (10 + self.status['bullet_speed']),
+        'y': math.sin(action[1]) * (10 + self.status['bullet_speed'])
+      }, self.id)
+      game.map_info['bullets'].append(bullet)
+      self.shoot_status['cd'] = 50 * math.log(self.status['bullet_reload'] + 1, 10)
+
   def collide_with(self, collider):
     self.attr['hp'] -= collider.attr['body_damage'] * 5
 
@@ -144,7 +262,7 @@ class Diep(GameObject):
 class Stuff(GameObject):
   def __init__(self, x, y):
     GameObject.__init__(self, x, y)
-    self.rafius = 15
+    self.radius = 15
     self.image = pygame.image.load('images/stuff.png')
 
     reader = open('stuffType.json', 'r')
@@ -162,8 +280,8 @@ class Stuff(GameObject):
     self.acceleration['left'] = self.acceleration['left'] * friction
     self.acceleration['right'] = self.acceleration['right'] * friction
 
-    self.velocity['x'] = (self.acceleration['down'] - self.acceleration['up']) * friction
-    self.velocity['y'] = (self.acceleration['right'] - self.acceleration['left']) * friction
+    self.velocity['x'] = (self.velocity['x']) * friction
+    self.velocity['y'] = (self.velocity['y']) * friction
 
     self.position['x'] = min(max(self.position['x'] + self.velocity['x'], 0), 800)
     self.position['y'] = min(max(self.position['y'] + self.velocity['y'], 0), 600)
@@ -173,11 +291,10 @@ class Stuff(GameObject):
       game.game_display.blit(self.image, (self.position['x'] - self.radius, self.position['y'] - self.radius))
     else:
       game.score += 1
-      game.detect_reward += 500
       game.map_info['stuffs'].remove(self)
 
   def collide_with(self, collider):
-    if (type(collider) == Player):
+    if (type(collider) == PlayerMove or type(collider) == PlayerShoot):
       self.attr['hp'] -= math.log(collider.status['body_damage'] + 1)
     elif (type(collider) == Bullet):
       self.attr['hp'] -= collider.attr['body_damage'] * 5
